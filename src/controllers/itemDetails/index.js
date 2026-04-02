@@ -2073,12 +2073,14 @@ export default function (view, params) {
 
         console.log('[Play on Discord] Sending payload:', JSON.stringify(payload, null, 2));
 
-        // eslint-disable-next-line no-undef
-        const botUrl = __DISCORD_BOT_URL__;
+        const discordUrl = apiClient.serverAddress() + '/Discord/Play';
 
-        fetch(botUrl + '/api/play', {
+        fetch(discordUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"'
+            },
             body: JSON.stringify(payload)
         }).then(response => {
             if (!response.ok) {
@@ -2120,13 +2122,15 @@ export default function (view, params) {
     }
 
     function onDiscordPauseResumeClick() {
-        // eslint-disable-next-line no-undef
-        const botUrl = __DISCORD_BOT_URL__;
-        const endpoint = self._discordPaused ? '/api/resume' : '/api/pause';
+        const apiClient = getApiClient();
+        const endpoint = self._discordPaused ? '/Discord/Resume' : '/Discord/Pause';
 
-        fetch(botUrl + endpoint, {
+        fetch(apiClient.serverAddress() + endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"'
+            }
         }).then(response => {
             if (!response.ok) {
                 throw new Error('Bot returned ' + response.status);
@@ -2144,12 +2148,14 @@ export default function (view, params) {
     }
 
     function onDiscordStopClick() {
-        // eslint-disable-next-line no-undef
-        const botUrl = __DISCORD_BOT_URL__;
+        const apiClient = getApiClient();
 
-        fetch(botUrl + '/api/stop', {
+        fetch(apiClient.serverAddress() + '/Discord/Stop', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"'
+            }
         }).then(response => {
             if (!response.ok) {
                 throw new Error('Bot returned ' + response.status);
