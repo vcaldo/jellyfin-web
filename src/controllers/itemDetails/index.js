@@ -35,6 +35,7 @@ import { renderComponent } from 'utils/reactUtils';
 import { download } from 'scripts/fileDownloader';
 import libraryMenu from 'scripts/libraryMenu';
 import * as userSettings from 'scripts/settings/userSettings';
+import toast from 'components/toast/toast';
 import Dashboard from 'utils/dashboard';
 import Events from 'utils/events';
 import { getItemBackdropImageUrl } from 'utils/jellyfin-apiclient/backdropImage';
@@ -363,6 +364,10 @@ function reloadPlayButtons(page, item) {
         hideAll(page, 'btnInstantMix');
         hideAll(page, 'btnShuffle');
     }
+
+    // Show "Play on Discord" for playable video items (Movie, Episode, Video, MusicVideo)
+    const isVideoItem = canPlay && ['Movie', 'Episode', 'Video', 'MusicVideo'].includes(item.Type);
+    hideAll(page, 'btnPlayOnDiscord', isVideoItem);
 
     return canPlay;
 }
@@ -1958,6 +1963,60 @@ export default function (view, params) {
         }]);
     }
 
+    function onPlayOnDiscordClick() {
+        const item = currentItem;
+        if (!item) return;
+
+        const apiClient = getApiClient();
+        const serverUrl = apiClient.serverAddress();
+        const mediaSourceId = view.querySelector('.selectSource').value || item.Id;
+        const subtitleIndex = view.querySelector('.selectSubtitles').value;
+        const apiKey = apiClient.accessToken();
+
+        const mediaSources = self._currentPlaybackMediaSources;
+        const mediaSource = mediaSources
+            ? mediaSources.find(m => m.Id === mediaSourceId) || mediaSources[0]
+            : null;
+
+        const container = mediaSource ? (mediaSource.Container || '').toLowerCase() : 'mkv';
+
+        // Direct stream URL (no subtitles)
+        const directStreamUrl = serverUrl + '/Videos/' + item.Id + '/stream.' + container
+            + '?Static=true'
+            + '&mediaSourceId=' + encodeURIComponent(mediaSourceId)
+            + '&deviceId=discord-bot'
+            + '&ApiKey=' + encodeURIComponent(apiKey);
+
+        // Transcoded URL with subtitle burn-in
+        let transcodedUrl = serverUrl + '/Videos/' + item.Id + '/stream'
+            + '?mediaSourceId=' + encodeURIComponent(mediaSourceId)
+            + '&deviceId=discord-bot'
+            + '&ApiKey=' + encodeURIComponent(apiKey)
+            + '&VideoCodec=h264'
+            + '&AudioCodec=aac'
+            + '&MaxStreamingBitrate=8000000';
+
+        const hasSubtitles = subtitleIndex && subtitleIndex !== '-1';
+        if (hasSubtitles) {
+            transcodedUrl += '&SubtitleStreamIndex=' + subtitleIndex
+                + '&SubtitleMethod=Encode';
+        }
+
+        console.log('[Play on Discord] Item:', item.Name);
+        console.log('[Play on Discord] Item ID:', item.Id);
+        console.log('[Play on Discord] Media Source ID:', mediaSourceId);
+        console.log('[Play on Discord] Container:', container);
+        console.log('[Play on Discord] Direct Stream URL (no subs):', directStreamUrl);
+        console.log('[Play on Discord] Transcoded URL (burn-in subs):', transcodedUrl);
+        if (hasSubtitles) {
+            console.log('[Play on Discord] Subtitle stream index:', subtitleIndex);
+        } else {
+            console.log('[Play on Discord] No subtitles selected');
+        }
+
+        toast('Play on Discord: URLs logged to console');
+    }
+
     function onMoreCommandsClick() {
         const button = this;
         let selectedItem = view.querySelector('.selectSource').value || currentItem.Id;
@@ -2026,6 +2085,7 @@ export default function (view, params) {
         bindAll(view, '.btnCancelSeriesTimer', 'click', onCancelSeriesTimerClick);
         bindAll(view, '.btnCancelTimer', 'click', onCancelTimerClick);
         bindAll(view, '.btnDownload', 'click', onDownloadClick);
+        bindAll(view, '.btnPlayOnDiscord', 'click', onPlayOnDiscordClick);
         view.querySelector('.trackSelections').addEventListener('submit', onTrackSelectionsSubmit);
         view.querySelector('.btnSplitVersions').addEventListener('click', function () {
             splitVersions(self, view, apiClient, params);
