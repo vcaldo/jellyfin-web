@@ -96,7 +96,9 @@ function getNowPlayingBarHtml() {
     html += '<div class="nowPlayingBarUserDataButtons">';
     html += '</div>';
 
-    html += `<button is="paper-icon-button-light" class="playPauseButton mediaButton" title="${globalize.translate('ButtonPause')}"><span class="material-icons pause" aria-hidden="true"></span></button>`;
+    if (layoutManager.mobile) {
+        html += `<button is="paper-icon-button-light" class="playPauseButton mediaButton" title="${globalize.translate('ButtonPause')}"><span class="material-icons pause" aria-hidden="true"></span></button>`;
+    }
     if (layoutManager.mobile) {
         html += `<button is="paper-icon-button-light" class="nextTrackButton mediaButton" title="${globalize.translate('ButtonNextTrack')}"><span class="material-icons skip_next" aria-hidden="true"></span></button>`;
     } else {
