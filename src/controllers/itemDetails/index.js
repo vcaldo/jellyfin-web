@@ -2002,19 +2002,96 @@ export default function (view, params) {
                 + '&SubtitleMethod=Encode';
         }
 
-        console.log('[Play on Discord] Item:', item.Name);
-        console.log('[Play on Discord] Item ID:', item.Id);
-        console.log('[Play on Discord] Media Source ID:', mediaSourceId);
-        console.log('[Play on Discord] Container:', container);
-        console.log('[Play on Discord] Direct Stream URL (no subs):', directStreamUrl);
-        console.log('[Play on Discord] Transcoded URL (burn-in subs):', transcodedUrl);
-        if (hasSubtitles) {
-            console.log('[Play on Discord] Subtitle stream index:', subtitleIndex);
-        } else {
-            console.log('[Play on Discord] No subtitles selected');
-        }
+        // Build subtitle tracks list from media source
+        const subtitleTracks = mediaSource
+            ? mediaSource.MediaStreams.filter(s => s.Type === 'Subtitle').map(s => ({
+                index: s.Index,
+                language: s.Language || null,
+                displayTitle: s.DisplayTitle || null,
+                codec: s.Codec || null,
+                isExternal: s.IsExternal || false
+            }))
+            : [];
 
-        toast('Play on Discord: URLs logged to console');
+        // Build the payload with all available item info
+        const payload = {
+            streamUrls: {
+                directStream: directStreamUrl,
+                transcoded: transcodedUrl
+            },
+            item: {
+                id: item.Id,
+                name: item.Name,
+                type: item.Type,
+                mediaType: item.MediaType,
+                container: container,
+                productionYear: item.ProductionYear || null,
+                overview: item.Overview || null,
+                seriesName: item.SeriesName || null,
+                seasonName: item.SeasonName || null,
+                indexNumber: item.IndexNumber ?? null,
+                parentIndexNumber: item.ParentIndexNumber ?? null,
+                runTimeTicks: item.RunTimeTicks || null,
+                officialRating: item.OfficialRating || null,
+                communityRating: item.CommunityRating || null,
+                genres: item.Genres || [],
+                studios: item.Studios?.map(s => s.Name) || [],
+                imageTag: item.ImageTags?.Primary || null,
+                backdropImageTag: item.BackdropImageTags?.[0] || null,
+                serverId: item.ServerId
+            },
+            mediaSource: mediaSource ? {
+                id: mediaSource.Id,
+                container: mediaSource.Container,
+                bitrate: mediaSource.Bitrate || null,
+                size: mediaSource.Size || null,
+                videoStream: mediaSource.MediaStreams.find(s => s.Type === 'Video')
+                    ? {
+                        codec: mediaSource.MediaStreams.find(s => s.Type === 'Video').Codec,
+                        width: mediaSource.MediaStreams.find(s => s.Type === 'Video').Width,
+                        height: mediaSource.MediaStreams.find(s => s.Type === 'Video').Height,
+                        bitRate: mediaSource.MediaStreams.find(s => s.Type === 'Video').BitRate
+                    }
+                    : null,
+                audioStream: mediaSource.MediaStreams.find(s => s.Type === 'Audio')
+                    ? {
+                        codec: mediaSource.MediaStreams.find(s => s.Type === 'Audio').Codec,
+                        channels: mediaSource.MediaStreams.find(s => s.Type === 'Audio').Channels,
+                        language: mediaSource.MediaStreams.find(s => s.Type === 'Audio').Language,
+                        bitRate: mediaSource.MediaStreams.find(s => s.Type === 'Audio').BitRate
+                    }
+                    : null,
+                subtitleTracks: subtitleTracks
+            } : null,
+            subtitle: hasSubtitles ? {
+                streamIndex: parseInt(subtitleIndex, 10),
+                method: 'Encode',
+                track: subtitleTracks.find(t => t.index === parseInt(subtitleIndex, 10)) || null
+            } : null,
+            serverUrl: serverUrl
+        };
+
+        console.log('[Play on Discord] Sending payload:', JSON.stringify(payload, null, 2));
+
+        // eslint-disable-next-line no-undef
+        const botUrl = __DISCORD_BOT_URL__;
+
+        fetch(botUrl + '/api/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Bot returned ' + response.status);
+            }
+            return response.json();
+        }).then(data => {
+            console.log('[Play on Discord] Bot response:', data);
+            toast('Play on Discord: sent to bot');
+        }).catch(err => {
+            console.error('[Play on Discord] Error:', err);
+            toast('Play on Discord: failed - ' + err.message);
+        });
     }
 
     function onMoreCommandsClick() {
