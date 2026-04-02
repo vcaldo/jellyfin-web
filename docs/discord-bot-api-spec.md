@@ -221,6 +221,75 @@ Start playback of a Jellyfin media item in a Discord voice channel.
 
 ---
 
+### `POST /api/pause`
+
+Pause the current playback on Discord.
+
+**Headers:**
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+
+**Request Body:** Empty (no body required).
+
+**Response (200):**
+
+```json
+{
+  "status": "ok",
+  "message": "Playback paused"
+}
+```
+
+---
+
+### `POST /api/resume`
+
+Resume paused playback on Discord.
+
+**Headers:**
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+
+**Request Body:** Empty (no body required).
+
+**Response (200):**
+
+```json
+{
+  "status": "ok",
+  "message": "Playback resumed"
+}
+```
+
+---
+
+### `POST /api/stop`
+
+Stop the current playback and disconnect from the voice channel.
+
+**Headers:**
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+
+**Request Body:** Empty (no body required).
+
+**Response (200):**
+
+```json
+{
+  "status": "ok",
+  "message": "Playback stopped"
+}
+```
+
+---
+
 ## Stream URL Formats
 
 The `streamUrls` object contains two pre-built URLs. The bot should pick the appropriate one:
@@ -274,25 +343,36 @@ The bot can construct Jellyfin image URLs from the payload if needed (e.g. for D
 
 | File | Change |
 |---|---|
-| `src/controllers/itemDetails/index.html` | Added "Play on Discord" button with `headphones` icon |
-| `src/controllers/itemDetails/index.js` | Added click handler, event binding, visibility logic, and `POST /api/play` call |
+| `src/controllers/itemDetails/index.html` | Added "Play on Discord", "Pause/Resume", and "Stop" buttons |
+| `src/controllers/itemDetails/index.js` | Added click handlers, event bindings, visibility logic, playback state tracking, and API calls |
 | `webpack.common.js` | Added `__DISCORD_BOT_URL__` compile-time constant from `DISCORD_BOT_URL` env var |
 
 ### Button Behavior
 
-1. **Visibility**: The button appears only for playable video items (`Movie`, `Episode`, `Video`, `MusicVideo`)
-2. **On click**:
-   - Reads the currently selected media source, audio track, and subtitle track from the UI dropdowns
-   - Constructs both stream URLs (direct + transcoded with burn-in)
-   - Gathers all available item metadata, media source details, and subtitle track info
-   - Sends the full payload to `POST {DISCORD_BOT_URL}/api/play`
-   - Logs the payload to the browser console with `[Play on Discord]` prefix
-   - Shows a toast notification on success or failure
+**Play on Discord** (`headphones` icon):
+- Visible for playable video items (`Movie`, `Episode`, `Video`, `MusicVideo`)
+- On click: builds stream URLs, gathers all item metadata, sends `POST /api/play`
+- On success: reveals the Pause/Resume and Stop controls
+
+**Pause/Resume** (`pause` / `play_arrow` icon — toggles):
+- Hidden by default, shown after successful `/api/play`
+- Sends `POST /api/pause` or `POST /api/resume` depending on current state
+- Icon toggles between pause and play_arrow to reflect state
+
+**Stop** (`stop` icon):
+- Hidden by default, shown after successful `/api/play`
+- Sends `POST /api/stop`
+- On success: hides both Pause/Resume and Stop buttons, resets state
 
 ### What the Bot Needs to Implement
 
-The companion Discord bot must expose `POST /api/play` on port 3000 (or whichever port `DISCORD_BOT_URL` points to). It receives the payload above and should:
+The companion Discord bot must expose these endpoints on port 3000 (or whichever port `DISCORD_BOT_URL` points to):
 
-1. Parse `streamUrls` and `subtitle` to decide which URL to use
-2. Use `item` metadata for Discord embed messages (title, year, poster image, etc.)
-3. Feed the chosen stream URL to ffmpeg for voice channel playback
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/play` | Start playback (receives full item payload) |
+| `POST /api/pause` | Pause current playback |
+| `POST /api/resume` | Resume paused playback |
+| `POST /api/stop` | Stop playback and disconnect |
+
+All endpoints return `{ "status": "ok", "message": "..." }` on success.

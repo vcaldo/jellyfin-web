@@ -2088,9 +2088,82 @@ export default function (view, params) {
         }).then(data => {
             console.log('[Play on Discord] Bot response:', data);
             toast('Play on Discord: sent to bot');
+            self._discordPlaying = true;
+            self._discordPaused = false;
+            showDiscordControls(view, true);
         }).catch(err => {
             console.error('[Play on Discord] Error:', err);
             toast('Play on Discord: failed - ' + err.message);
+        });
+    }
+
+    function showDiscordControls(page, visible) {
+        hideAll(page, 'btnDiscordPauseResume', visible);
+        hideAll(page, 'btnDiscordStop', visible);
+
+        if (visible) {
+            updateDiscordPauseIcon(page);
+        }
+    }
+
+    function updateDiscordPauseIcon(page) {
+        for (const btn of page.querySelectorAll('.btnDiscordPauseResume')) {
+            const icon = btn.querySelector('.material-icons');
+            if (self._discordPaused) {
+                icon.textContent = 'play_arrow';
+                btn.title = 'Resume on Discord';
+            } else {
+                icon.textContent = 'pause';
+                btn.title = 'Pause on Discord';
+            }
+        }
+    }
+
+    function onDiscordPauseResumeClick() {
+        // eslint-disable-next-line no-undef
+        const botUrl = __DISCORD_BOT_URL__;
+        const endpoint = self._discordPaused ? '/api/resume' : '/api/pause';
+
+        fetch(botUrl + endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Bot returned ' + response.status);
+            }
+            return response.json();
+        }).then(data => {
+            console.log('[Play on Discord] ' + (self._discordPaused ? 'Resume' : 'Pause') + ' response:', data);
+            self._discordPaused = !self._discordPaused;
+            updateDiscordPauseIcon(view);
+            toast(self._discordPaused ? 'Discord: paused' : 'Discord: resumed');
+        }).catch(err => {
+            console.error('[Play on Discord] Pause/Resume error:', err);
+            toast('Discord pause/resume failed - ' + err.message);
+        });
+    }
+
+    function onDiscordStopClick() {
+        // eslint-disable-next-line no-undef
+        const botUrl = __DISCORD_BOT_URL__;
+
+        fetch(botUrl + '/api/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Bot returned ' + response.status);
+            }
+            return response.json();
+        }).then(data => {
+            console.log('[Play on Discord] Stop response:', data);
+            self._discordPlaying = false;
+            self._discordPaused = false;
+            showDiscordControls(view, false);
+            toast('Discord: playback stopped');
+        }).catch(err => {
+            console.error('[Play on Discord] Stop error:', err);
+            toast('Discord stop failed - ' + err.message);
         });
     }
 
@@ -2163,6 +2236,8 @@ export default function (view, params) {
         bindAll(view, '.btnCancelTimer', 'click', onCancelTimerClick);
         bindAll(view, '.btnDownload', 'click', onDownloadClick);
         bindAll(view, '.btnPlayOnDiscord', 'click', onPlayOnDiscordClick);
+        bindAll(view, '.btnDiscordPauseResume', 'click', onDiscordPauseResumeClick);
+        bindAll(view, '.btnDiscordStop', 'click', onDiscordStopClick);
         view.querySelector('.trackSelections').addEventListener('submit', onTrackSelectionsSubmit);
         view.querySelector('.btnSplitVersions').addEventListener('click', function () {
             splitVersions(self, view, apiClient, params);
