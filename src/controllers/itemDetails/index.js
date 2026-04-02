@@ -35,6 +35,7 @@ import { renderComponent } from 'utils/reactUtils';
 import { download } from 'scripts/fileDownloader';
 import libraryMenu from 'scripts/libraryMenu';
 import * as userSettings from 'scripts/settings/userSettings';
+import toast from 'components/toast/toast';
 import Dashboard from 'utils/dashboard';
 import Events from 'utils/events';
 import { getItemBackdropImageUrl } from 'utils/jellyfin-apiclient/backdropImage';
@@ -363,6 +364,10 @@ function reloadPlayButtons(page, item) {
         hideAll(page, 'btnInstantMix');
         hideAll(page, 'btnShuffle');
     }
+
+    // Show "Play on Discord" for playable video items (Movie, Episode, Video, MusicVideo)
+    const isVideoItem = canPlay && ['Movie', 'Episode', 'Video', 'MusicVideo'].includes(item.Type);
+    hideAll(page, 'btnPlayOnDiscord', isVideoItem);
 
     return canPlay;
 }
@@ -1958,6 +1963,210 @@ export default function (view, params) {
         }]);
     }
 
+    function onPlayOnDiscordClick() {
+        const item = currentItem;
+        if (!item) return;
+
+        const apiClient = getApiClient();
+        const serverUrl = apiClient.serverAddress();
+        const mediaSourceId = view.querySelector('.selectSource').value || item.Id;
+        const subtitleIndex = view.querySelector('.selectSubtitles').value;
+        const apiKey = apiClient.accessToken();
+
+        const mediaSources = self._currentPlaybackMediaSources;
+        const mediaSource = mediaSources
+            ? mediaSources.find(m => m.Id === mediaSourceId) || mediaSources[0]
+            : null;
+
+        const container = mediaSource ? (mediaSource.Container || '').toLowerCase() : 'mkv';
+
+        // Direct stream URL (no subtitles)
+        const directStreamUrl = serverUrl + '/Videos/' + item.Id + '/stream.' + container
+            + '?Static=true'
+            + '&mediaSourceId=' + encodeURIComponent(mediaSourceId)
+            + '&deviceId=discord-bot'
+            + '&ApiKey=' + encodeURIComponent(apiKey);
+
+        // Transcoded URL with subtitle burn-in
+        let transcodedUrl = serverUrl + '/Videos/' + item.Id + '/stream'
+            + '?mediaSourceId=' + encodeURIComponent(mediaSourceId)
+            + '&deviceId=discord-bot'
+            + '&ApiKey=' + encodeURIComponent(apiKey)
+            + '&VideoCodec=h264'
+            + '&AudioCodec=aac'
+            + '&MaxStreamingBitrate=8000000';
+
+        const hasSubtitles = subtitleIndex && subtitleIndex !== '-1';
+        if (hasSubtitles) {
+            transcodedUrl += '&SubtitleStreamIndex=' + subtitleIndex
+                + '&SubtitleMethod=Encode';
+        }
+
+        // Build subtitle tracks list from media source
+        const subtitleTracks = mediaSource
+            ? mediaSource.MediaStreams.filter(s => s.Type === 'Subtitle').map(s => ({
+                index: s.Index,
+                language: s.Language || null,
+                displayTitle: s.DisplayTitle || null,
+                codec: s.Codec || null,
+                isExternal: s.IsExternal || false
+            }))
+            : [];
+
+        // Build the payload with all available item info
+        const payload = {
+            streamUrls: {
+                directStream: directStreamUrl,
+                transcoded: transcodedUrl
+            },
+            item: {
+                id: item.Id,
+                name: item.Name,
+                type: item.Type,
+                mediaType: item.MediaType,
+                container: container,
+                productionYear: item.ProductionYear || null,
+                overview: item.Overview || null,
+                seriesName: item.SeriesName || null,
+                seasonName: item.SeasonName || null,
+                indexNumber: item.IndexNumber ?? null,
+                parentIndexNumber: item.ParentIndexNumber ?? null,
+                runTimeTicks: item.RunTimeTicks || null,
+                officialRating: item.OfficialRating || null,
+                communityRating: item.CommunityRating || null,
+                genres: item.Genres || [],
+                studios: item.Studios?.map(s => s.Name) || [],
+                imageTag: item.ImageTags?.Primary || null,
+                backdropImageTag: item.BackdropImageTags?.[0] || null,
+                serverId: item.ServerId
+            },
+            mediaSource: mediaSource ? {
+                id: mediaSource.Id,
+                container: mediaSource.Container,
+                bitrate: mediaSource.Bitrate || null,
+                size: mediaSource.Size || null,
+                videoStream: mediaSource.MediaStreams.find(s => s.Type === 'Video')
+                    ? {
+                        codec: mediaSource.MediaStreams.find(s => s.Type === 'Video').Codec,
+                        width: mediaSource.MediaStreams.find(s => s.Type === 'Video').Width,
+                        height: mediaSource.MediaStreams.find(s => s.Type === 'Video').Height,
+                        bitRate: mediaSource.MediaStreams.find(s => s.Type === 'Video').BitRate
+                    }
+                    : null,
+                audioStream: mediaSource.MediaStreams.find(s => s.Type === 'Audio')
+                    ? {
+                        codec: mediaSource.MediaStreams.find(s => s.Type === 'Audio').Codec,
+                        channels: mediaSource.MediaStreams.find(s => s.Type === 'Audio').Channels,
+                        language: mediaSource.MediaStreams.find(s => s.Type === 'Audio').Language,
+                        bitRate: mediaSource.MediaStreams.find(s => s.Type === 'Audio').BitRate
+                    }
+                    : null,
+                subtitleTracks: subtitleTracks
+            } : null,
+            subtitle: hasSubtitles ? {
+                streamIndex: parseInt(subtitleIndex, 10),
+                method: 'Encode',
+                track: subtitleTracks.find(t => t.index === parseInt(subtitleIndex, 10)) || null
+            } : null,
+            serverUrl: serverUrl
+        };
+
+        console.log('[Play on Discord] Sending payload:', JSON.stringify(payload, null, 2));
+
+        // eslint-disable-next-line no-undef
+        const botUrl = __DISCORD_BOT_URL__;
+
+        fetch(botUrl + '/api/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Bot returned ' + response.status);
+            }
+            return response.json();
+        }).then(data => {
+            console.log('[Play on Discord] Bot response:', data);
+            toast('Play on Discord: sent to bot');
+            self._discordPlaying = true;
+            self._discordPaused = false;
+            showDiscordControls(view, true);
+        }).catch(err => {
+            console.error('[Play on Discord] Error:', err);
+            toast('Play on Discord: failed - ' + err.message);
+        });
+    }
+
+    function showDiscordControls(page, visible) {
+        hideAll(page, 'btnDiscordPauseResume', visible);
+        hideAll(page, 'btnDiscordStop', visible);
+
+        if (visible) {
+            updateDiscordPauseIcon(page);
+        }
+    }
+
+    function updateDiscordPauseIcon(page) {
+        for (const btn of page.querySelectorAll('.btnDiscordPauseResume')) {
+            const icon = btn.querySelector('.material-icons');
+            if (self._discordPaused) {
+                icon.textContent = 'play_arrow';
+                btn.title = 'Resume on Discord';
+            } else {
+                icon.textContent = 'pause';
+                btn.title = 'Pause on Discord';
+            }
+        }
+    }
+
+    function onDiscordPauseResumeClick() {
+        // eslint-disable-next-line no-undef
+        const botUrl = __DISCORD_BOT_URL__;
+        const endpoint = self._discordPaused ? '/api/resume' : '/api/pause';
+
+        fetch(botUrl + endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Bot returned ' + response.status);
+            }
+            return response.json();
+        }).then(data => {
+            console.log('[Play on Discord] ' + (self._discordPaused ? 'Resume' : 'Pause') + ' response:', data);
+            self._discordPaused = !self._discordPaused;
+            updateDiscordPauseIcon(view);
+            toast(self._discordPaused ? 'Discord: paused' : 'Discord: resumed');
+        }).catch(err => {
+            console.error('[Play on Discord] Pause/Resume error:', err);
+            toast('Discord pause/resume failed - ' + err.message);
+        });
+    }
+
+    function onDiscordStopClick() {
+        // eslint-disable-next-line no-undef
+        const botUrl = __DISCORD_BOT_URL__;
+
+        fetch(botUrl + '/api/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Bot returned ' + response.status);
+            }
+            return response.json();
+        }).then(data => {
+            console.log('[Play on Discord] Stop response:', data);
+            self._discordPlaying = false;
+            self._discordPaused = false;
+            showDiscordControls(view, false);
+            toast('Discord: playback stopped');
+        }).catch(err => {
+            console.error('[Play on Discord] Stop error:', err);
+            toast('Discord stop failed - ' + err.message);
+        });
+    }
+
     function onMoreCommandsClick() {
         const button = this;
         let selectedItem = view.querySelector('.selectSource').value || currentItem.Id;
@@ -2026,6 +2235,9 @@ export default function (view, params) {
         bindAll(view, '.btnCancelSeriesTimer', 'click', onCancelSeriesTimerClick);
         bindAll(view, '.btnCancelTimer', 'click', onCancelTimerClick);
         bindAll(view, '.btnDownload', 'click', onDownloadClick);
+        bindAll(view, '.btnPlayOnDiscord', 'click', onPlayOnDiscordClick);
+        bindAll(view, '.btnDiscordPauseResume', 'click', onDiscordPauseResumeClick);
+        bindAll(view, '.btnDiscordStop', 'click', onDiscordStopClick);
         view.querySelector('.trackSelections').addEventListener('submit', onTrackSelectionsSubmit);
         view.querySelector('.btnSplitVersions').addEventListener('click', function () {
             splitVersions(self, view, apiClient, params);
